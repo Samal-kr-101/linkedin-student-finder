@@ -1,4 +1,7 @@
 const puppeteer = require("puppeteer-core");
+const chromium = require("@sparticuz/chromium");
+
+
 const createCsvWriter =
   require("csv-writer").createObjectCsvWriter;
 
@@ -10,16 +13,10 @@ async function scrapeLinkedIn() {
   console.log("🚀 Launching Chromium...");
 
   const browser = await puppeteer.launch({
-  headless: "new",
-  executablePath: process.env.CHROME_PATH || "/usr/bin/google-chrome-stable",
-  userDataDir: "./linkedin-session",
-  defaultViewport: null,
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu"
-  ]
+  args: chromium.args,
+  defaultViewport: chromium.defaultViewport,
+  executablePath: await chromium.executablePath(),
+  headless: chromium.headless,
 });
 
   const page = await browser.newPage();
