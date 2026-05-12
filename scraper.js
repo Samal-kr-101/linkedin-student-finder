@@ -131,274 +131,254 @@ const puppeteer = require("puppeteer");
 const createCsvWriter =
   require("csv-writer").createObjectCsvWriter;
 
+const sleep = (ms) =>
+  new Promise(resolve => setTimeout(resolve, ms));
+
 async function scrapeLinkedIn() {
 
-  console.log("Connecting to Chromium...");
+  console.log("🚀 Launching Chromium...");
 
-  // Connect to existing Chromium session
-  const browser = await puppeteer.connect({
-    browserURL: "http://127.0.0.1:9222",
+  const browser = await puppeteer.launch({
+    headless: false,
+    userDataDir: "./linkedin-session",
     defaultViewport: null,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage"
+    ]
+  });
+
+  const page = await browser.newPage();
+
+  // =========================
+  // 🔥 DEBUG 1: BASIC CHECKS
+  // =========================
+  console.log("📡 Opening LinkedIn...");
+
+  await page.goto("https://www.linkedin.com", {
+    waitUntil: "domcontentloaded",
     timeout: 60000,
   });
 
-  // Get browser pages
-  const pages = await browser.pages();
+  console.log("🔎 Current URL:", page.url());
 
-  // Use first tab
-  const page = pages[0];
+  await page.screenshot({
+    path: "debug-home.png",
+    fullPage: true
+  });
 
-  console.log("Connected successfully");
+  // =========================
+  // 🔍 SEARCH QUERY (IMPROVED)
+  // =========================
+  const keyword =
+    "final year student OR 2025 graduate OR BTech final year OR software intern";
 
-  // Search keyword
-  const keyword = "2025 software engineer student";
-
-  // LinkedIn search URL
   const searchUrl =
     `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(keyword)}`;
 
-  console.log("Opening LinkedIn search page...");
+  console.log("🔎 Opening search page...");
 
-  // Open LinkedIn search
   await page.goto(searchUrl, {
     waitUntil: "domcontentloaded",
-    timeout: 0,
+    timeout: 60000,
   });
 
-  // Wait for results
-  await new Promise(resolve =>
-    setTimeout(resolve, 10000)
+  console.log("📍 Search URL:", page.url());
+
+  await page.screenshot({
+    path: "debug-search.png",
+    fullPage: true
+  });
+
+  await sleep(8000);
+
+  // =========================
+  // 🔥 DEBUG 2: PAGE STATE
+  // =========================
+  const pageText = await page.evaluate(() =>
+    document.body.innerText
   );
 
-  // Scroll page
+  console.log("📄 PAGE SNAPSHOT (first 500 chars):");
+  console.log(pageText.slice(0, 500));
+
+  if (page.url().includes("login")) {
+    console.log("❌ YOU ARE NOT LOGGED IN TO LINKEDIN");
+    await browser.close();
+    return [];
+  }
+
+  // =========================
+  // 🔥 EXTRA SCROLLING (important)
+  // =========================
+  console.log("⬇ Scrolling page...");
+
   await page.evaluate(() => {
     window.scrollTo(0, document.body.scrollHeight);
   });
 
-  // Wait again
-  await new Promise(resolve =>
-    setTimeout(resolve, 5000)
-  );
+  await sleep(5000);
 
-  console.log("Collecting profile links...");
+  // =========================
+  // 🔥 PROFILE EXTRACTION (SAFE)
+  // =========================
+  console.log("🧲 Extracting profiles...");
 
-  // Wait for profile links
-  await page.waitForSelector("a[href*='/in/']", {
-    timeout: 30000,
+  const profiles = await page.evaluate(() => {
+
+    const keywords = [
+  "2025",
+  "software engineer",
+  "student",
+  "final year",
+  "graduate",
+  "b.tech"
+];
+
+    const match = (text) =>
+      keywords.some(k =>
+        text.toLowerCase().includes(k.toLowerCase())
+      );
+
+    const anchors = Array.from(
+      document.querySelectorAll("a")
+    );
+
+    const seen = new Set();
+    const results = [];
+
+    for (const a of anchors) {
+
+      const href = a.href || "";
+      const text = (a.innerText || "").trim();
+
+      if (!href.includes("/in/")) continue;
+      if (!text || !match(text)) continue;
+
+      if (seen.has(href)) continue;
+
+      seen.add(href);
+
+      results.push({
+        name: text.split("\n")[0],
+        profileUrl: href
+      });
+    }
+
+    return results;
   });
 
-  // Extract unique profiles
-  const profiles = await page.$$eval(
-    "a[href*='/in/']",
-    (links) => {
+  console.log(`✅ Found profiles: ${profiles.length}`);
 
-      const data = [];
-      const seen = new Set();
+  // =========================
+  // 🔥 DEBUG OUTPUT
+  // =========================
+  console.log("📦 SAMPLE DATA:");
+  console.log(profiles.slice(0, 5));
 
-      links.forEach((link) => {
-
-        let name =
-          link.innerText?.trim() || "";
-
-        const profileUrl =
-          link.href || "";
-
-        // Clean name
-        name =
-          name.split("\n")[0].trim();
-
-        // Ignore duplicates
-        if (
-          !name ||
-          seen.has(profileUrl)
-        ) {
-          return;
-        }
-
-        seen.add(profileUrl);
-
-        data.push({
-          name,
-          profileUrl,
-        });
-
-      });
-
-      return data;
-
-    }
-  );
-
-  console.log(
-    `Found ${profiles.length} profiles`
-  );
-
-  // Final results
   const finalResults = [];
 
-  // Open each profile
+  // =========================
+  // PROFILE SCRAPING
+  // =========================
   for (const profile of profiles.slice(0, 10)) {
 
     try {
 
-      console.log(
-        `Opening profile: ${profile.name}`
-      );
+      console.log(`➡ Scraping: ${profile.name}`);
 
-      // Open profile page
-      await page.goto(profile.profileUrl, {
+      const profilePage = await browser.newPage();
+
+      await profilePage.goto(profile.profileUrl, {
         waitUntil: "domcontentloaded",
-        timeout: 0,
+        timeout: 60000,
       });
 
-      // Wait
-      await new Promise(resolve =>
-        setTimeout(resolve, 5000)
-      );
+    //   await sleep(5000);
+    await new Promise(r => setTimeout(r, 1500));
 
-      // Click Contact Info button
-      const buttons = await page.$$("a");
+      // Contact info click
+      const clicked = await profilePage.evaluate(() => {
 
-      for (const button of buttons) {
+        const els = Array.from(
+          document.querySelectorAll("a, button")
+        );
 
-        const text =
-          await page.evaluate(
-            el => el.innerText,
-            button
-          );
+        const btn = els.find(el =>
+          el.innerText?.includes("Contact info")
+        );
 
-        if (
-          text &&
-          text.includes("Contact info")
-        ) {
-
-          await button.click();
-
-          console.log(
-            "Contact info opened"
-          );
-
-          break;
+        if (btn) {
+          btn.click();
+          return true;
         }
 
-      }
-
-      // Wait for popup
-      await new Promise(resolve =>
-        setTimeout(resolve, 3000)
-      );
-
-      // Extract contact details
-      const contactData =
-        await page.evaluate(() => {
-
-          const text =
-            document.body.innerText;
-
-          // Email regex
-          const emailMatch =
-            text.match(
-              /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
-            );
-
-          // Phone regex
-          const phoneMatch =
-            text.match(
-              /(\+91[\s-]?)?[6-9]\d{9}/g
-            );
-
-          return {
-            email:
-              emailMatch
-                ? emailMatch[0]
-                : "Not Available",
-
-            phone:
-              phoneMatch
-                ? phoneMatch[0]
-                : "Not Available",
-          };
-
-        });
-
-      // Save final data
-      finalResults.push({
-
-        name: profile.name,
-
-        profileUrl:
-          profile.profileUrl,
-
-        email:
-          contactData.email,
-
-        phone:
-          contactData.phone,
-
+        return false;
       });
 
-      console.log({
+      if (clicked) {
+        console.log("📞 Contact info opened");
+        // await sleep(3000);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
+      const contactData = await profilePage.evaluate(() => {
+
+        const text = document.body.innerText;
+
+        const email = text.match(
+          /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+        );
+
+        const phone = text.match(
+          /(\+91[\s-]?)?[6-9]\d{9}/g
+        );
+
+        return {
+          email: email ? email[0] : "Not Available",
+          phone: phone ? phone[0] : "Not Available",
+        };
+      });
+
+      finalResults.push({
         name: profile.name,
+        profileUrl: profile.profileUrl,
         email: contactData.email,
         phone: contactData.phone,
       });
 
-      // Delay between profiles
-      await new Promise(resolve =>
-        setTimeout(resolve, 5000)
-      );
+      console.log("📊 Result:", contactData);
 
-    } catch (error) {
+      await profilePage.close();
 
-      console.log(
-        `Error scraping ${profile.name}`
-      );
+      await sleep(3000);
 
+    } catch (err) {
+      console.log(`❌ Failed: ${profile.name}`, err.message);
     }
-
   }
 
-  // Save CSV
+  // =========================
+  // SAVE CSV
+  // =========================
   const csvWriter = createCsvWriter({
-
     path: "linkedin_contacts.csv",
-
     header: [
-
-      {
-        id: "name",
-        title: "NAME"
-      },
-
-      {
-        id: "profileUrl",
-        title: "PROFILE_URL"
-      },
-
-      {
-        id: "email",
-        title: "EMAIL"
-      },
-
-      {
-        id: "phone",
-        title: "PHONE"
-      },
-
+      { id: "name", title: "NAME" },
+      { id: "profileUrl", title: "PROFILE_URL" },
+      { id: "email", title: "EMAIL" },
+      { id: "phone", title: "PHONE" },
     ],
-
   });
 
-  await csvWriter.writeRecords(
-    finalResults
-  );
+  await csvWriter.writeRecords(finalResults);
 
-  console.log(
-    "CSV file saved successfully"
-  );
+  console.log("🎉 CSV saved successfully");
+
+  await browser.close();
 
   return finalResults;
-
 }
 
 module.exports = scrapeLinkedIn;
