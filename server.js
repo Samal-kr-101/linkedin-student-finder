@@ -18,9 +18,11 @@ app.get("/scrape", async (req, res) => {
     const data = await scrapeLinkedIn();
     res.json(data);
   } catch (error) {
-    console.log(error);
+    console.log("❌ SCRAPING ERROR:", error); // VERY IMPORTANT
+
     res.status(500).json({
       message: "Scraping failed",
+      error: error.message, // show real reason
     });
   }
 });
